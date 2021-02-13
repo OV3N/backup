@@ -1,6 +1,6 @@
 #!/bin/bash
 
-fold="$HOME/.local/git/peltch/configs/desktop"
+fold="$HOME/.local/git/peltch/configs/dtop"
 
 # Create folders if needed
 mkdir -p $fold/.config/vim/plugged/
