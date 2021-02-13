@@ -1,0 +1,89 @@
+#!/bin/bash
+## NOT TESTED RECENTLY, DONT USE AS A SCRIPT
+## Format Boot partition as Fat32 (512MB)
+## Format Linux partition as ext4
+## Format swap partition (RAM + 4GB)
+
+## Boot into Arch Bootable USB
+
+## Test internet connection 
+ping -c 3 google.com
+
+## List partitions
+fdisk -l
+
+## Enable swap partition
+swapon /dev/nvme0n1p3
+
+## If using LUKS
+cryptsetup -y -v luksFormat # if not already encrypted
+cryptsetup open /dev/sda2 cryptroot
+mkfs.ext4 /dev/mapper/cryptroot
+mount /dev/mapper/cryptroot /mnt
+
+## Mount partitions
+mount /dev/nvme0n1p2 /mnt
+mkdir /mnt/boot
+mount /dev/nvme0n1p1 /mnt/boot
+
+pacstrap /mnt base linux linux-firmware
+
+genfstab -U -p /mnt >> /mnt/etc/fstab
+
+## Check to make sure all partitions are present in new fstab
+cat /mnt/etc/fstab
+
+## Chroot to new installation
+arch-chroot /mnt
+
+## Install necessary packages
+pacman -Sy
+pacman -S --noconfirm vim sudo man wireless_tools wpa_supplicant openresolv netctl dialog grub-bios os-prober efibootmgr dhcpcd zsh git
+
+## Select locale
+sed -i 's/#en_US.UTF-8/en_US.UTF-8/g' /etc/locale.gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+export LANG=en_US.UTF-8
+
+## Set time zone
+ln -s /usr/share/zoneinfo/America/New_York /etc/localtime
+hwclock --systohc --utc
+locale-gen
+
+## Configure Package Manager and create backup
+#sed -i.bak '94 s/#//' /etc/pacman.conf
+#sed -i.bak '95 s/#//' /etc/pacman.conf
+
+## Update Repositories
+pacman -Sy
+
+## Set Root password and create new user
+passwd
+echo "Enter new user's name"
+read user
+useradd -m -g users -G wheel,storage,power -s /bin/bash $user
+passwd $user
+
+## Allow wheel users to use sudo
+sed -i 's/# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/g' /etc/sudoers
+
+## Configure GRUB
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
+
+## If using LUKS
+# Add the keyboard, keymap, and ecrypt hooks to mkinitcpio.conf
+HOOKS=(base udev autodetect keyboard keymap consolefont modconf block encrypt filesystems fsck)
+# Execute the following
+mkinitcpio -p linux
+# Find the device UUID of your encrypted partition with the following command
+sudo blkid
+# Replace the "root=" entry in /boot/grub/grub.cfg with the following.
+# Replace the string "DEVICE-UUID" with the actual device UUID
+# Make sure to use the DEVICE UUID, not cryptroot UUID
+cryptdevice=UUID=DEVICE-UUID:cryptroot root=/dev/mapper/cryptroot
+
+## Done
+#Now exit from chroot, umount /mnt/boot and /mnt, and reboot
+#cryptsetup close cryptroot
+
